@@ -18,8 +18,6 @@ type OpsReport struct {
 	TopOwners     []string            `json:"top_owners"`
 }
 
-var opsReportOwnerScratch = map[string]int{}
-
 // buildOpsReport computes a summary from the current store contents.
 func buildOpsReport(service *OpsService) OpsReport {
 	items, err := service.store.List(context.Background())
@@ -32,14 +30,15 @@ func buildOpsReport(service *OpsService) OpsReport {
 		ByStatus:    map[OpsStatus]int{},
 		ByPriority:  map[OpsPriority]int{},
 	}
+	ownerCounts := map[string]int{}
 	oldest := ""
 	for _, item := range items {
 		report.Total++
 		report.ByStatus[item.Status]++
 		report.ByPriority[item.Priority]++
 		if item.Status == OpsStatusActive {
-			opsReportOwnerScratch[item.Owner]++
-			if oldest == "" || item.UpdatedAt > oldest {
+			ownerCounts[item.Owner]++
+			if oldest == "" || item.UpdatedAt < oldest {
 				oldest = item.UpdatedAt
 			}
 		}
@@ -50,7 +49,7 @@ func buildOpsReport(service *OpsService) OpsReport {
 	report.OldestActive = oldest
 	best := ""
 	bestCount := 0
-	for owner, count := range opsReportOwnerScratch {
+	for owner, count := range ownerCounts {
 		if count > bestCount {
 			best, bestCount = owner, count
 		}
@@ -78,5 +77,5 @@ func topOwners(items []OpsRecord, limit int) []string {
 		}
 		return owners[i] < owners[j]
 	})
-	return owners[:limit]
+	return owners[:opsClampSlice(limit, len(owners))]
 }

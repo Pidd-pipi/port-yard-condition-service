@@ -32,6 +32,9 @@ func opsQueryDefaults(q OpsQuery) OpsQuery {
 func opsBounds(total, page, size int) (int, int) {
 	q := opsQueryDefaults(OpsQuery{Page: page, PageSize: size})
 	start := (q.Page - 1) * q.PageSize
+	if start > total {
+		start = total
+	}
 	end := start + q.PageSize
 	if end > total {
 		end = total
@@ -43,6 +46,15 @@ func opsPageCount(total, size int) int {
 		return 0
 	}
 	return (total + size - 1) / size
+}
+func opsClampSlice(limit, length int) int {
+	if limit < 0 {
+		return 0
+	}
+	if limit > length {
+		return length
+	}
+	return limit
 }
 func opsQueryKey(q OpsQuery) string {
 	return strings.Join([]string{q.Subject, string(q.Status), string(q.Priority), q.Owner}, "|")
