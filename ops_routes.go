@@ -161,7 +161,7 @@ func opsUpdateHandler(w http.ResponseWriter, r *http.Request, service *OpsServic
 		return
 	}
 	record := OpsRecord{ID: id, Subject: request.Subject, Owner: request.Owner, Priority: request.Priority, Status: request.Status, Labels: request.Labels}
-	updated, err := service.Update(r.Context(), id, 0, record)
+	updated, err := service.Update(r.Context(), id, request.Expected, record)
 	if err != nil {
 		writeOpsError(w, opsStatusForError(err), err.Error())
 		return
@@ -170,7 +170,10 @@ func opsUpdateHandler(w http.ResponseWriter, r *http.Request, service *OpsServic
 }
 
 func opsDeleteHandler(w http.ResponseWriter, r *http.Request, service *OpsService, id string) {
-	_ = service.Delete(r.Context(), id)
+	if err := service.Delete(r.Context(), id); err != nil {
+		writeOpsError(w, opsStatusForError(err), err.Error())
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -183,7 +186,7 @@ func opsTransitionHandler(w http.ResponseWriter, r *http.Request, service *OpsSe
 		writeOpsError(w, http.StatusBadRequest, "status is required")
 		return
 	}
-	updated, err := service.Transition(r.Context(), id, 0, request.Status, opsActorFromRequest(r))
+	updated, err := service.Transition(r.Context(), id, request.Expected, request.Status, opsActorFromRequest(r))
 	if err != nil {
 		writeOpsError(w, opsStatusForError(err), err.Error())
 		return

@@ -30,10 +30,13 @@ func wrapOps(code, operation string, cause error) error {
 	return &OpsError{Code: code, Operation: operation, Cause: cause}
 }
 func opsCode(err error) string {
-	var typed *OpsError
-	if errors.As(err, &typed) {
-		return typed.Code
+	if err == nil {
+		return ""
 	}
+	// Resolve the underlying sentinel error first. OpsError.Code is an
+	// operation label (e.g. "create", "update"), not an error category, so
+	// it must never win over the wrapped cause — otherwise every wrapped
+	// conflict/policy/transition error collapses into "internal" (500).
 	switch {
 	case errors.Is(err, ErrOpsNotFound):
 		return "not_found"
@@ -45,9 +48,12 @@ func opsCode(err error) string {
 		return "transition"
 	case errors.Is(err, ErrOpsPolicy):
 		return "policy"
-	default:
-		return "internal"
 	}
+	var typed *OpsError
+	if errors.As(err, &typed) && typed.Code != "" {
+		return typed.Code
+	}
+	return "internal"
 }
 func opsIsNotFound(err error) bool   { return errors.Is(err, ErrOpsNotFound) }
 func opsIsConflict(err error) bool   { return errors.Is(err, ErrOpsConflict) }
