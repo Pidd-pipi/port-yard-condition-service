@@ -1,0 +1,7 @@
+{
+  "project_intro": "基于 Go 实现的港区堆场状态管理 Web 项目，一款后端服务，处理堆场区域状态更新、作业记录状态流转、传感器读数采集与告警通知。",
+  "mode": "service",
+  "workdir": "backend",
+  "start": "go run .",
+  "ready_url": "http://127.0.0.1:8080/healthz"
+}
