@@ -80,9 +80,18 @@ type OpsSnapshot struct {
 	ByPriority  map[OpsPriority]int
 }
 
+// Clone returns a deep copy of the record so callers can mutate the returned
+// Labels map without affecting the value held in the store. OpsRecord's other
+// fields are value types, but Labels is a map and would otherwise be shared.
 func (r OpsRecord) Clone() OpsRecord {
 	copy := r
-	copy.Labels = r.Labels
+	if r.Labels != nil {
+		labels := make(map[string]string, len(r.Labels))
+		for k, v := range r.Labels {
+			labels[k] = v
+		}
+		copy.Labels = labels
+	}
 	return copy
 }
 
@@ -111,6 +120,14 @@ func normalizeOpsRecord(record OpsRecord) OpsRecord {
 	}
 	if record.Labels == nil {
 		record.Labels = map[string]string{}
+	} else {
+		// Take an owned copy so later mutation of the caller's map cannot leak
+		// into the stored record.
+		owned := make(map[string]string, len(record.Labels))
+		for k, v := range record.Labels {
+			owned[k] = v
+		}
+		record.Labels = owned
 	}
 	return record
 }

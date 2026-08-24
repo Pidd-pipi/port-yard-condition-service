@@ -31,7 +31,7 @@ func (s *OpsStore) Get(ctx context.Context, id string) (OpsRecord, error) {
 	if !ok {
 		return OpsRecord{}, ErrOpsNotFound
 	}
-	return item, nil
+	return item.Clone(), nil
 }
 func (s *OpsStore) List(ctx context.Context) ([]OpsRecord, error) {
 	select {
@@ -43,7 +43,7 @@ func (s *OpsStore) List(ctx context.Context) ([]OpsRecord, error) {
 	defer s.mu.RUnlock()
 	out := make([]OpsRecord, 0, len(s.items))
 	for _, item := range s.items {
-		out = append(out, item)
+		out = append(out, item.Clone())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
