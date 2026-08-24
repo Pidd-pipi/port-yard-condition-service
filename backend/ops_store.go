@@ -62,25 +62,26 @@ func (s *OpsStore) Put(ctx context.Context, item OpsRecord) error {
 	s.items[item.ID] = normalizeOpsRecord(item)
 	return nil
 }
-func (s *OpsStore) Update(ctx context.Context, item OpsRecord, expected int) error {
+func (s *OpsStore) Update(ctx context.Context, item OpsRecord, expected int) (OpsRecord, error) {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return OpsRecord{}, ctx.Err()
 	default:
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, ok := s.items[item.ID]
 	if !ok {
-		return ErrOpsNotFound
+		return OpsRecord{}, ErrOpsNotFound
 	}
 	if expected > 0 && current.Revision != expected {
-		return ErrOpsConflict
+		return OpsRecord{}, ErrOpsConflict
 	}
 	item.Revision = current.Revision + 1
 	item.UpdatedAt = timeNowOps()
-	s.items[item.ID] = item.Clone()
-	return nil
+	stored := item.Clone()
+	s.items[item.ID] = stored
+	return stored.Clone(), nil
 }
 func (s *OpsStore) Delete(ctx context.Context, id string) error {
 	select {

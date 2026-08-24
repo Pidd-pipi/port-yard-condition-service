@@ -77,14 +77,21 @@ func (s *OpsService) Transition(ctx context.Context, id string, expected int, ta
 	if !s.state.CanMove(record.Status, target) {
 		return OpsRecord{}, fmt.Errorf("%w: %s to %s", ErrOpsTransition, record.Status, target)
 	}
-	if err := s.state.Move(record.Status, target, "operator update"); err != nil {
-		return OpsRecord{}, err
-	}
+	from := record.Status
 	record.Status = target
-	s.audit.Add(record.ID, "status_changed", actor)
-	if err := s.store.Update(ctx, record, expected); err != nil {
+	stored, err := s.store.Update(ctx, record, expected)
+	if err != nil {
+		return OpsRecord{}, wrapOps("transition", "store.update", err)
+	}
+	record = stored
+	if err := s.state.Move(from, target, "operator update"); err != nil {
+		// CanMove passed above, so Move should never reject this; if it does
+		// the state machine and audit bookkeeping is out of sync with the
+		// persisted record. Surface the error and return no record so callers
+		// cannot act on a half-applied transition.
 		return OpsRecord{}, err
 	}
+	s.audit.Add(record.ID, "status_changed", actor)
 	return record, nil
 }
 func (s *OpsService) Audit(id string) []OpsEvent { return s.audit.For(id) }
@@ -114,11 +121,12 @@ func (s *OpsService) Update(ctx context.Context, id string, expected int, record
 		return OpsRecord{}, err
 	}
 	record.UpdatedAt = s.clock.Stamp()
-	if err := s.store.Update(ctx, record, expected); err != nil {
+	stored, err := s.store.Update(ctx, record, expected)
+	if err != nil {
 		return OpsRecord{}, wrapOps("update", "store.update", err)
 	}
-	s.audit.Add(record.ID, "updated", record.Owner)
-	return record, nil
+	s.audit.Add(stored.ID, "updated", stored.Owner)
+	return stored, nil
 }
 
 // Delete removes a record and records the deletion in the audit trail.

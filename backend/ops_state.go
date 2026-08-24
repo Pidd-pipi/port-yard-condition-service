@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -23,9 +24,19 @@ type OpsStateMachine struct {
 
 func newOpsStateMachine() *OpsStateMachine { return &OpsStateMachine{history: []OpsTransition{}} }
 func (m *OpsStateMachine) CanMove(from, to OpsStatus) bool {
-	return true
+	if from == to {
+		return true
+	}
+	allowed, ok := opsTransitionTable[from]
+	if !ok {
+		return false
+	}
+	return allowed[to]
 }
 func (m *OpsStateMachine) Move(from, to OpsStatus, reason string) error {
+	if !m.CanMove(from, to) {
+		return fmt.Errorf("%w: %s to %s", ErrOpsTransition, from, to)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if from == to {

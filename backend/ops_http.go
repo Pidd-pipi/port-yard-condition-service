@@ -76,7 +76,7 @@ func opsStatusForError(err error) int {
 	case "transition":
 		return http.StatusUnprocessableEntity
 	case "policy":
-		return http.StatusInternalServerError
+		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError
 	}
