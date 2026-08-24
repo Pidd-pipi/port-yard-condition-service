@@ -54,17 +54,20 @@ func NewService(store *Store) *Service {
 	return &Service{store: store, alerts: newAlertLog(200), now: time.Now}
 }
 
-// Record stores a reading and returns any alerts it triggers.
+// Record stores a reading and returns any alerts it triggers. The work is done
+// synchronously so callers (the HTTP handler) can report the produced alerts in
+// the response; an earlier version dispatched this to a goroutine, which raced
+// concurrent queries and left the response with no alerts.
 func (s *Service) Record(r Reading) []Alert {
 	if r.At.IsZero() {
 		r.At = s.now().UTC()
 	}
-	go func() {
-		s.store.Append(r)
-		detected := Detect(r)
+	s.store.Append(r)
+	detected := Detect(r)
+	if len(detected) > 0 {
 		s.alerts.Add(detected)
-	}()
-	return nil
+	}
+	return detected
 }
 
 // Recent returns the retained readings for a zone.

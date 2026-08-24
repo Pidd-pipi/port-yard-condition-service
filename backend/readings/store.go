@@ -23,16 +23,21 @@ func NewStore(capacity int) *Store {
 // Append records a new reading, evicting the oldest sample of the zone when the
 // per-zone history exceeds the store capacity.
 func (s *Store) Append(r Reading) {
-	zone := s.byZone[r.ZoneID]
-	zone = append(zone, r)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	zone := append(s.byZone[r.ZoneID], r)
 	if len(zone) > s.capacity {
-		zone = zone[len(zone)-s.capacity:]
+		// Copy into a fresh backing array so concurrent readers can never alias
+		// the evicted tail of the previous slice.
+		zone = append([]Reading(nil), zone[len(zone)-s.capacity:]...)
 	}
 	s.byZone[r.ZoneID] = zone
 }
 
 // Recent returns up to limit newest readings for a zone, newest first.
 func (s *Store) Recent(zoneID string, limit int) []Reading {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	zone := s.byZone[zoneID]
 	if limit <= 0 || limit > len(zone) {
 		limit = len(zone)
@@ -53,6 +58,8 @@ func (s *Store) Count(zoneID string) int {
 
 // Zones returns the distinct zone ids with retained readings, sorted.
 func (s *Store) Zones() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]string, 0, len(s.byZone))
 	for id := range s.byZone {
 		out = append(out, id)

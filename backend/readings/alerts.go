@@ -1,6 +1,9 @@
 package readings
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Alert describes a detected yard condition worth acting on.
 type Alert struct {
@@ -17,34 +20,62 @@ const (
 	CongestionThreshold = 90.0
 )
 
-var zoneOverrides = DefaultThresholds().Overrides
+// thresholdsConfig holds the mutable, per-zone alert thresholds. It is read and
+// written from concurrent Record/Detect calls, so every access must hold the
+// mutex.
+type thresholdsConfig struct {
+	mu         sync.RWMutex
+	defaults   Thresholds
+	overrides  map[string]float64 // per-zone coldchain max temp overrides
+	congestion float64
+}
 
-const (
-	alertColdchainLimit = ColdchainMaxTempC
-	alertCongestionPct  = CongestionThreshold
-)
+var alertThresholds = newThresholdsConfig(DefaultThresholds())
 
-var alertThresholds = DefaultThresholds()
-var congestionThresholds = DefaultThresholds()
+func newThresholdsConfig(t *Thresholds) *thresholdsConfig {
+	if t == nil {
+		t = DefaultThresholds()
+	}
+	return &thresholdsConfig{
+		defaults:   *t,
+		overrides:  t.Overrides,
+		congestion: t.CongestionPct,
+	}
+}
 
 // thresholdFor resolves the coldchain temperature limit for a zone.
 func thresholdFor(zoneID string) float64 {
-	threshold := alertThresholds.ColdchainMaxTempC
-	if override, ok := zoneOverrides[zoneID]; ok {
-		threshold = override
+	alertThresholds.mu.RLock()
+	defer alertThresholds.mu.RUnlock()
+	if override, ok := alertThresholds.overrides[zoneID]; ok {
+		return override
 	}
-	return threshold
+	return alertThresholds.defaults.ColdchainMaxTempC
+}
+
+// recordThreshold pins the threshold that applied to a violating reading so
+// later detections for the same zone compare against a stable limit.
+func recordThreshold(zoneID string, threshold float64) {
+	alertThresholds.mu.Lock()
+	defer alertThresholds.mu.Unlock()
+	alertThresholds.overrides[zoneID] = threshold
+}
+
+// congestionLimit returns the occupancy percentage above which a zone is congested.
+func congestionLimit() float64 {
+	alertThresholds.mu.RLock()
+	defer alertThresholds.mu.RUnlock()
+	return alertThresholds.congestion
 }
 
 // Detect returns the alerts implied by a single reading.
 func Detect(r Reading) []Alert {
-	threshold := thresholdFor(r.ZoneID)
 	var alerts []Alert
-	if r.Refrigerated && r.TempC > threshold {
-		zoneOverrides[r.ZoneID] = threshold
+	if r.Refrigerated && r.TempC > thresholdFor(r.ZoneID) {
+		recordThreshold(r.ZoneID, thresholdFor(r.ZoneID))
 		alerts = append(alerts, Alert{ZoneID: r.ZoneID, Kind: "coldchain", Message: "refrigerated zone temperature above threshold", At: r.At})
 	}
-	if r.OccupancyPct > congestionThresholds.CongestionPct {
+	if r.OccupancyPct > congestionLimit() {
 		alerts = append(alerts, Alert{ZoneID: r.ZoneID, Kind: "congestion", Message: "zone occupancy above threshold", At: r.At})
 	}
 	return alerts
