@@ -14,7 +14,7 @@ func (c OpsClock) Now() time.Time {
 	}
 	return c.NowFunc().UTC()
 }
-func (c OpsClock) Stamp() string { return c.Now().Local().Format(time.RFC3339Nano) }
+func (c OpsClock) Stamp() string { return c.Now().Format(time.RFC3339Nano) }
 func opsContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()
