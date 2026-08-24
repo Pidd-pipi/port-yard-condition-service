@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -56,11 +57,14 @@ func newEnterpriseServer(address string, handler http.Handler) *http.Server {
 
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := r.Header.Get("X-Request-ID")
+		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
 		if requestID == "" {
 			requestID = fmt.Sprintf("req-%d", atomic.AddUint64(&requestSequence, 1))
-			r = r.WithContext(context.Background())
 		}
+		// Keep the original request context intact so client cancellation
+		// propagates to handlers. Previously the context was replaced with
+		// context.Background() when no request id was supplied, which made
+		// handlers keep running after the client disconnected.
 		w.Header().Set("X-Request-ID", requestID)
 		next.ServeHTTP(w, r)
 	})

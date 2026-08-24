@@ -74,13 +74,24 @@ func NewRetrySender(inner Sender, maxAttempts int) *RetrySender {
 }
 
 // Send attempts delivery, honoring context cancellation between retries.
+// Cancellation interrupts the backoff wait immediately instead of letting the
+// retry loop run to completion after the caller has given up.
 func (s *RetrySender) Send(ctx context.Context, msg Message) error {
 	var err error
 	for attempt := 0; attempt < s.max; attempt++ {
 		if err = s.inner.Send(ctx, msg); err == nil {
 			return nil
 		}
-		time.Sleep(s.backoff(attempt))
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		timer := time.NewTimer(s.backoff(attempt))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		}
 	}
 	return err
 }

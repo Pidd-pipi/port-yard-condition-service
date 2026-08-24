@@ -50,22 +50,16 @@ func main() {
 	}
 }
 
-var opsStaleCtx = context.Background()
-
 // newRootHandler routes requests between the yard-zone, ops and readings APIs.
+// Each request keeps its own context so that a client cancellation only affects
+// the request that was cancelled — it never leaks into subsequent requests.
 func newRootHandler(yard http.Handler, ops http.Handler, readings http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/ops"):
-			if opsStaleCtx == context.Background() {
-				opsStaleCtx = r.Context()
-			}
-			ops.ServeHTTP(w, r.WithContext(opsStaleCtx))
+			ops.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/api/readings"):
-			if opsStaleCtx == context.Background() {
-				opsStaleCtx = r.Context()
-			}
-			readings.ServeHTTP(w, r.WithContext(opsStaleCtx))
+			readings.ServeHTTP(w, r)
 		default:
 			yard.ServeHTTP(w, r)
 		}
@@ -73,8 +67,12 @@ func newRootHandler(yard http.Handler, ops http.Handler, readings http.Handler) 
 }
 
 // trimOpsAudit bounds the in-memory audit trail to keep long-running memory
-// usage predictable.
+// usage predictable. It honors the job context so a cancelled sweep stops
+// instead of mutating the audit trail after the runner has moved on.
 func trimOpsAudit(ctx context.Context, service *OpsService, max int) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	service.audit.Trim(max)
 	return nil
 }

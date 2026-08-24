@@ -27,6 +27,8 @@ type Dispatcher struct {
 	done    chan struct{}
 	wg      sync.WaitGroup
 	stats   *Stats
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // NewDispatcher builds a dispatcher with the given senders and worker count.
@@ -37,12 +39,15 @@ func NewDispatcher(senders []Sender, queueSize, workers int) *Dispatcher {
 	if workers < 1 {
 		workers = 1
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Dispatcher{
 		senders: senders,
 		queue:   make(chan Message, queueSize),
 		workers: workers,
 		done:    make(chan struct{}),
 		stats:   &Stats{},
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
@@ -67,7 +72,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, msg Message) error {
 
 func (d *Dispatcher) deliver(msg Message) {
 	for _, sender := range d.senders {
-		if err := sender.Send(context.Background(), msg); err != nil {
+		// Deliveries use the dispatcher's own context so that Stop cancels
+		// any in-flight retry backoff instead of waiting it out.
+		if err := sender.Send(d.ctx, msg); err != nil {
 			atomic.AddInt64(&d.stats.Failed, 1)
 		} else {
 			atomic.AddInt64(&d.stats.Delivered, 1)
@@ -98,8 +105,11 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-// Stop signals the workers to finish and waits for them to exit.
+// Stop signals the workers to finish and waits for them to exit. Cancelling the
+// dispatcher context interrupts in-flight retry backoff so workers exit
+// promptly instead of draining their full retry schedule.
 func (d *Dispatcher) Stop() {
+	d.cancel()
 	close(d.done)
 	d.wg.Wait()
 }
