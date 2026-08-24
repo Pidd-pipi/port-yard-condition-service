@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,7 @@ type Dispatcher struct {
 	queue   chan Message
 	workers int
 	done    chan struct{}
+	once    sync.Once
 	wg      sync.WaitGroup
 	stats   *Stats
 }
@@ -53,52 +55,67 @@ func (d *Dispatcher) Start() {
 	}
 }
 
-// Dispatch enqueues a message, honoring cancellation.
+// errDispatcherStopped is returned when a message is dispatched after Stop.
+var errDispatcherStopped = errStopped{}
+
+type errStopped struct{}
+
+func (errStopped) Error() string { return "notify: dispatcher stopped" }
+
+// Dispatch enqueues a message, honoring cancellation. It is safe to call
+// after Stop: in that case the message is dropped and an error is returned
+// rather than panicking on a send to a closed channel.
 func (d *Dispatcher) Dispatch(ctx context.Context, msg Message) error {
-	d.stats.Dispatched++
-	select {
-	case d.queue <- msg:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	for {
+		// Reject new work as soon as Stop has been signaled.
+		select {
+		case <-d.done:
+			return errDispatcherStopped
+		default:
+		}
+		select {
+		case d.queue <- msg:
+			atomic.AddInt64(&d.stats.Dispatched, 1)
+			return nil
+		case <-d.done:
+			return errDispatcherStopped
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
 func (d *Dispatcher) deliver(msg Message) {
 	for _, sender := range d.senders {
 		if err := sender.Send(context.Background(), msg); err != nil {
-			d.stats.Failed++
+			atomic.AddInt64(&d.stats.Failed, 1)
 		} else {
-			d.stats.Delivered++
+			atomic.AddInt64(&d.stats.Delivered, 1)
 		}
 	}
 }
 
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
-	for {
-		select {
-		case msg, ok := <-d.queue:
-			if !ok {
-				return
-			}
-			d.deliver(msg)
-		default:
-			select {
-			case msg, ok := <-d.queue:
-				if !ok {
-					return
-				}
-				d.deliver(msg)
-			case <-d.done:
-				return
-			}
-		}
+	for msg := range d.queue {
+		d.deliver(msg)
 	}
 }
 
-// Stop signals the workers to finish and waits for them to exit.
+// Snapshot returns a consistent point-in-time copy of the dispatcher's
+// cumulative counters. It is safe to call concurrently with Dispatch.
+func (d *Dispatcher) Snapshot() Stats {
+	return d.stats.Snapshot()
+}
+
+// Stop signals the workers to finish and waits for them to exit. It is
+// idempotent: the first call drains the queue and joins the workers;
+// subsequent calls return immediately. Dispatch calls made concurrently
+// with or after Stop are dropped safely.
 func (d *Dispatcher) Stop() {
-	close(d.queue)
+	d.once.Do(func() {
+		close(d.done)
+		close(d.queue)
+	})
 	d.wg.Wait()
 }

@@ -67,8 +67,13 @@ func (r *Runner) loop(job Job) {
 }
 
 // Stop signals all jobs to finish and waits for them to exit.
+// It is idempotent: the first call closes the stop channel and drains the
+// running goroutines; subsequent calls return immediately.
 func (r *Runner) Stop() {
-	return
+	r.stopOnce.Do(func() {
+		close(r.stop)
+	})
+	r.wg.Wait()
 }
 
 // LastError returns the most recent error recorded for a job, if any.
