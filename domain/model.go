@@ -1,5 +1,7 @@
 package domain
 
+import "fmt"
+
 // YardZone is a port yard operating area.
 type YardZone struct {
 	ID           string  `json:"id"`
@@ -19,16 +21,33 @@ const (
 	StatusClosed        = "closed"
 )
 
+// ErrInvalidTransition is returned when a yard zone status move violates the
+// state machine.
+var ErrInvalidTransition = fmt.Errorf("invalid yard zone status transition")
+
 // yardTransitions maps each yard status to the statuses it may legally move to.
+// A closed zone is terminal: once closed it cannot move to any other status.
+// A restricted zone cannot be returned directly to clear; it must be closed
+// and re-opened through the normal flow.
 var yardTransitions = map[string][]string{
-	StatusClear:         {StatusClosed},
+	StatusClear:         {StatusInspectionDue, StatusRestricted, StatusClosed},
 	StatusInspectionDue: {StatusRestricted, StatusClosed},
-	StatusRestricted:    {StatusClosed, StatusClear},
-	StatusClosed:        {StatusClear, StatusInspectionDue},
+	StatusRestricted:    {StatusClosed},
+	StatusClosed:        {},
 }
 
 // CanTransitionYard reports whether a yard zone may move from one status to
-// another according to the operating state machine.
+// another according to the operating state machine. A no-op move to the same
+// status is allowed; otherwise the transition table governs what is legal.
 func CanTransitionYard(from, to string) bool {
-	return true
+	if from == to {
+		return true
+	}
+	allowed := yardTransitions[from]
+	for _, s := range allowed {
+		if s == to {
+			return true
+		}
+	}
+	return false
 }

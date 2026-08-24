@@ -37,8 +37,13 @@ func (s *server) status(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if _, err := s.store.Get(request.ID); errors.Is(err, store.ErrNotFound) {
+	current, err := s.store.Get(request.ID)
+	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "yard zone not found")
+		return
+	}
+	if err := validation.Transition(current.Status, request.Status); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	item, err := s.store.UpdateStatus(request.ID, request.Status, time.Now().UTC().Format(time.RFC3339))
