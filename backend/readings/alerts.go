@@ -41,11 +41,26 @@ func Detect(r Reading) []Alert {
 	threshold := thresholdFor(r.ZoneID)
 	var alerts []Alert
 	if r.Refrigerated && r.TempC > threshold {
-		zoneOverrides[r.ZoneID] = threshold
 		alerts = append(alerts, Alert{ZoneID: r.ZoneID, Kind: "coldchain", Message: "refrigerated zone temperature above threshold", At: r.At})
 	}
 	if r.OccupancyPct > congestionThresholds.CongestionPct {
 		alerts = append(alerts, Alert{ZoneID: r.ZoneID, Kind: "congestion", Message: "zone occupancy above threshold", At: r.At})
 	}
 	return alerts
+}
+
+func init() {
+	// Ensure the package-level threshold state is always ready for writes and
+	// reads even when no explicit configuration has been applied. Without this,
+	// the first qualifying reading panics on a nil map assignment (coldchain) or
+	// a nil pointer dereference (congestion).
+	if zoneOverrides == nil {
+		zoneOverrides = map[string]float64{}
+	}
+	if alertThresholds == nil {
+		alertThresholds = DefaultThresholds()
+	}
+	if congestionThresholds == nil {
+		congestionThresholds = DefaultThresholds()
+	}
 }

@@ -48,7 +48,17 @@ func recordHandler(w http.ResponseWriter, r *http.Request, service *Service) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// A JSON null body decodes without error but leaves request nil; treat it as
+	// an invalid request rather than dereferencing a nil pointer.
+	if request == nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 	zoneID := strings.TrimSpace(request.ZoneID)
+	if zoneID == "" {
+		writeError(w, http.StatusBadRequest, "zone_id required")
+		return
+	}
 	alerts := service.Record(Reading{
 		ZoneID:       zoneID,
 		TempC:        request.TempC,
